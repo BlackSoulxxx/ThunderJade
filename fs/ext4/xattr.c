@@ -235,7 +235,7 @@ ext4_xattr_check_block(struct inode *inode, struct buffer_head *bh)
 
 static int
 __xattr_check_inode(struct inode *inode, struct ext4_xattr_ibody_header *header,
-			 void *end)
+			 void *end, const char *function, unsigned int line)
 {
 	struct ext4_xattr_entry *entry = IFIRST(header);
 	int error = -EIO;
@@ -245,11 +245,14 @@ __xattr_check_inode(struct inode *inode, struct ext4_xattr_ibody_header *header,
 		goto errout;
 	error = ext4_xattr_check_names(entry, end, entry);
 errout:
+	if (error)
+		__ext4_error_inode(inode, function, line, 0,
+				   "corrupted in-inode xattr");
 	return error;
 }
 
 #define xattr_check_inode(inode, header, end) \
-	__xattr_check_inode((inode), (header), (end))
+	__xattr_check_inode((inode), (header), (end), __func__, __LINE__)
 
 static inline int
 ext4_xattr_check_entry(struct ext4_xattr_entry *entry, size_t size)
@@ -363,7 +366,7 @@ ext4_xattr_ibody_get(struct inode *inode, int name_index, const char *name,
 	header = IHDR(inode, raw_inode);
 	entry = IFIRST(header);
 	end = (void *)raw_inode + EXT4_SB(inode->i_sb)->s_inode_size;
-	error = ext4_xattr_check_names(entry, end, entry);
+	error = xattr_check_inode(inode, header, end);
 	if (error) {
 		print_iloc_info(inode->i_sb, iloc);
 		__ext4_error_inode(inode, __func__, __LINE__, 0,
@@ -500,7 +503,7 @@ ext4_xattr_ibody_list(struct dentry *dentry, char *buffer, size_t buffer_size)
 	raw_inode = ext4_raw_inode(&iloc);
 	header = IHDR(inode, raw_inode);
 	end = (void *)raw_inode + EXT4_SB(inode->i_sb)->s_inode_size;
-	error = ext4_xattr_check_names(IFIRST(header), end, IFIRST(header));
+	error = xattr_check_inode(inode, header, end);
 	if (error) {
 		print_iloc_info(inode->i_sb, iloc);
 		__ext4_error_inode(inode, __func__, __LINE__, 0,
@@ -1022,8 +1025,7 @@ int ext4_xattr_ibody_find(struct inode *inode, struct ext4_xattr_info *i,
 	is->s.here = is->s.first;
 	is->s.end = (void *)raw_inode + EXT4_SB(inode->i_sb)->s_inode_size;
 	if (ext4_test_inode_state(inode, EXT4_STATE_XATTR)) {
-		error = ext4_xattr_check_names(IFIRST(header), is->s.end,
-					       IFIRST(header));
+		error = xattr_check_inode(inode, header, is->s.end);
 		if (error) {
 			print_iloc_info(inode->i_sb, is->iloc);
 			__ext4_error_inode(inode, __func__, __LINE__, 0,
@@ -1334,7 +1336,6 @@ retry:
 				   "corrupted in-inode xattr");
 		goto cleanup;
 	}
-
 	free = ext4_xattr_free_space(last, &min_offs, base, &total_ino);
 	if (free >= new_extra_isize) {
 		entry = IFIRST(header);
